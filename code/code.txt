@@ -1,0 +1,108 @@
+#param dataset 数据所在的文件
+dataset = "E:\\警情挖掘\\处理过的数据\\data_process1.xlsx"
+df = pd.read_excel(dataset, sheet_name="Sheet0")
+
+column_name = list(df.columns)
+call_pol_info = df['报警内容']
+pol_feedback = df['出警情况（反馈内容）']
+accident_location = df['案发地点']
+
+call_pol_info_np = np.array(call_pol_info)
+pol_feedback_np = np.array(pol_feedback)
+accident_location_np = np.array(accident_location)
+
+column_name.remove('报警内容')
+column_name.remove('出警情况（反馈内容）')
+redundant = df[column_name]
+
+
+stop_word = ['*', '#', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '，', '.', '。',\
+             ':', '!', '(', ')', '\'', '/', '民警', '警察', '报警人', '出警', '报警',\
+                 '途中', '没有', '电话', '人', '和', '小区', '你' , '我', '我们', '他',\
+                     '他们', '有', '（', '）', '10', '浙江省', '：', '年', '月', '日', ]
+
+cut_words_rs_path = "F:\\python自然语言处理读写路径\\警情挖掘\\cut_sentence_rs.txt"
+
+def cut_sentence(alist):
+    rs_words_list = []
+    for i, sentence in enumerate(alist):
+        words = []
+        final_word = []
+        word = jieba.cut(sentence)
+        words += word
+        for i, word in enumerate(words):
+            if word not in stop_word:
+                final_word.append(word)
+        rs_words_list.append(final_word)
+        
+#    for i in range(len(rs_words_list)):
+#        with open(cut_words_rs_path, 'a') as f:
+#            f.write(str(rs_words_list[i]))
+#            f.write("\n")
+            
+    return rs_words_list
+
+
+def one_hot(words_list):
+    #words = []
+    #for i, word in enumerate(words_list):
+    #    words += word
+    vocab = sorted(set(words_list),key=words_list.index)
+    M = len(words_list)
+    V = len(vocab)
+    onehot = np.zeros((M,V))
+    for i,doc in enumerate(words_list):
+        if doc in vocab:
+            pos = vocab.index(doc)
+            # print(pos,word)
+            onehot[i][pos] = 1
+        else:
+            print(doc)
+    
+    return pd.DataFrame(onehot, columns=vocab)
+
+
+def doc2tfidf_matrix(words_list):
+    words = []
+    for i, word in enumerate(words_list):
+        words += word
+    vocab = sorted(set(words),key=words.index)
+    M = len(words_list)
+    V = len(vocab)
+    onehot = np.zeros((M,V))
+    tf = np.zeros((M,V))
+    
+    for i,doc in enumerate(words_list):
+        for word in doc:
+            if word in vocab:
+                pos = vocab.index(word)
+                # print(pos,word)
+                onehot[i][pos] = 1
+                tf[i][pos] += 1 # tf,统计某词语在一条样本中出现的次数
+            else:
+                print(word)
+    
+    row_sum = tf.sum(axis=1) # 行相加，得到每个样本出现的词语数
+    # 计算TF(t,d)
+    tf = tf/row_sum[:, np.newaxis] #分母表示各样本出现的词语数，tf为单词在样本中出现的次数，[:,np.newaxis]作用类似于行列转置
+    # 计算DF(t,D)，IDF
+    df = onehot.sum(axis=0) # 列相加，表示有多少样本包含词袋某词
+    idf = list(map(lambda x:math.log10((M+1)/(x+1)),df))
+    # 计算TFIDF
+    tfidf = tf*np.array(idf)
+    tfidf = pd.DataFrame(tfidf, columns=vocab)
+    return tfidf
+
+
+tfidf_call_pol_info = doc2tfidf_matrix(cut_sentence(list(call_pol_info_np)))
+tfidf_pol_feedback = doc2tfidf_matrix(cut_sentence(list(pol_feedback_np)))
+
+#测试用词向量
+#origin_words_list = ['我是中国人', '我爱我的祖国', '我爱中国人民', '我拥护中国共产党的领导'\
+#              , '坚持中国共产党的领导', '坚持为人民服务', '为中国人民谋幸福，为中华民族谋复兴']
+#words_list = cut_sentence(origin_words_list)
+#tfidf = doc2tfidf_matrix(words_list)
+
+tfidf_pol_feedback.sum(axis=0)[tfidf_pol_feedback.sum(axis=0)>=3].to_excel('F:\\python自然语言处理读写路径\\警情挖掘\\word_frequency.xls', index=True)
+
+location_onehot = one_hot(list(accident_location_np))
